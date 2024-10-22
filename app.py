@@ -2,10 +2,12 @@ import streamlit as st
 from dotenv import load_dotenv
 import os
 import google.generativeai as genai
-from PIL import Image
-from pathlib import Path
+import psutil
+import time
+import matplotlib.pyplot as plt
+import pandas as pd
 
-# Load environment variables (likely your Google API key)
+# Load environment variables
 load_dotenv()
 api_key = os.getenv("GOOGLE_API_KEY")
 
@@ -13,101 +15,115 @@ api_key = os.getenv("GOOGLE_API_KEY")
 if not api_key:
     st.error("API key is not set. Please check your .env file.")
 else:
-    # Configure the generative AI model with the provided API key
+    # Configure the generative AI model
     genai.configure(api_key=api_key)
 
-    # Function to get the response from the generative AI model
-    def get_gemini_response(image_data, input_prompt):
+    # Function to get AI's suggestions for optimizing system performance
+    def get_system_suggestions(input_prompt):
         model = genai.GenerativeModel('gemini-1.5-flash')
-        response = model.generate_content([image_data[0], input_prompt])
+        response = model.generate_content([input_prompt])
         return response.text
 
-    # Function to process the uploaded image
-    def input_image_setup(uploaded_file):
-        if uploaded_file is not None:
-            bytes_data = uploaded_file.getvalue()
-            mime_type = uploaded_file.type
-            image_parts = [
-                {
-                    "mime_type": mime_type,
-                    "data": bytes_data
-                }
-            ]
-            return image_parts
-        else:
-            raise FileNotFoundError("No file uploaded")
+    # Monitor system resources using psutil
+    def display_system_usage():
+        cpu_usage = psutil.cpu_percent(interval=1)
+        memory_usage = psutil.virtual_memory().percent
+        disk_usage = psutil.disk_usage('/').percent
+        return cpu_usage, memory_usage, disk_usage
 
-    # Set the page configuration for the Streamlit app
-    st.set_page_config(page_title="Gemini Health App")
-    st.header("Gemini Health App")
+    # Track system resource usage history for plotting
+    usage_history = {'cpu': [], 'memory': [], 'disk': []}
 
-    # File uploader widget for users to upload an image
-    uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
-    if uploaded_file is not None:
-        image = Image.open(uploaded_file)
-        st.image(image, caption="Uploaded Image.", use_column_width=True)
+    # Set up threshold monitoring
+    cpu_threshold = st.sidebar.slider("Set CPU Usage Threshold (%)", 0, 100, 80)
+    memory_threshold = st.sidebar.slider("Set Memory Usage Threshold (%)", 0, 100, 80)
+    disk_threshold = st.sidebar.slider("Set Disk Usage Threshold (%)", 0, 100, 90)
 
-    # Predefined prompt for calorie calculation
-    calorie_prompt = """
-    You are an expert nutritionist analyzing the food items in the image. 
-    Give detail information of food item. 
+    st.set_page_config(page_title="Real-Time System Monitor")
+    st.header("Real-Time System Resource Monitor")
+
+    # Sidebar for real-time resource monitoring
+    st.sidebar.header("System Resource Usage")
+    cpu_usage, memory_usage, disk_usage = display_system_usage()
+    st.sidebar.write(f"CPU Usage: {cpu_usage}%")
+    st.sidebar.write(f"Memory Usage: {memory_usage}%")
+    st.sidebar.write(f"Disk Usage: {disk_usage}%")
+
+    # Save usage history for visualization
+    usage_history['cpu'].append(cpu_usage)
+    usage_history['memory'].append(memory_usage)
+    usage_history['disk'].append(disk_usage)
+
+    # Alert the user if any usage exceeds the threshold
+    if cpu_usage > cpu_threshold:
+        st.warning(f"⚠️ CPU usage is above {cpu_threshold}%: {cpu_usage}%")
+    if memory_usage > memory_threshold:
+        st.warning(f"⚠️ Memory usage is above {memory_threshold}%: {memory_usage}%")
+    if disk_usage > disk_threshold:
+        st.warning(f"⚠️ Disk usage is above {disk_threshold}%: {disk_usage}%")
+
+    # AI-generated suggestions based on resource usage
+    performance_prompt = f"""
+    The system is currently running with {cpu_usage}% CPU usage, 
+    {memory_usage}% memory usage, and {disk_usage}% disk usage.
+    Provide suggestions on how to optimize system performance.
     """
 
-    # Text area for users to ask questions about the food in the image
-    food_question = st.text_area("Ask a question about the food in the image:", key="food_question")
+    # Button to get AI suggestions for optimizing system performance
+    if st.button("Get AI Suggestions"):
+        try:
+            suggestions = get_system_suggestions(performance_prompt)
+            if 'suggestions_history' not in st.session_state:
+                st.session_state.suggestions_history = []
+            st.session_state.suggestions = suggestions
+            st.session_state.suggestions_history.append(suggestions)
+            st.subheader("AI-Generated System Performance Suggestions:")
+            st.write(suggestions)
 
-    # Button to analyze the uploaded image
-    if st.button("Analyze Image"):
-        if uploaded_file is not None:
-            try:
-                image_data = input_image_setup(uploaded_file)
+        except Exception as e:
+            st.error(f"Error generating suggestions: {str(e)}")
 
-                # Get the response for the calorie prompt
-                calorie_response = get_gemini_response(image_data, calorie_prompt)
-                st.session_state.calorie_response = calorie_response
+    # Display the history of AI suggestions
+    if 'suggestions_history' in st.session_state:
+        st.subheader("History of AI Suggestions:")
+        for i, suggestion in enumerate(st.session_state.suggestions_history):
+            st.write(f"Suggestion {i+1}:")
+            st.write(suggestion)
 
-                # Get the response for the user's question
-                question_response = None
-                if food_question:
-                    question_response = get_gemini_response(image_data, food_question)
-                    st.session_state.question_response = question_response
-                else:
-                    st.session_state.question_response = None
+    # Plot CPU, Memory, and Disk usage over time
+    st.subheader("Resource Usage Over Time")
+    fig, ax = plt.subplots()
+    df = pd.DataFrame(usage_history)
+    df.plot(ax=ax)
+    st.pyplot(fig)
 
-                # Display the analysis results
-                st.subheader("Analysis Results:")
-                #st.write("Total Calories:")
-                st.write(calorie_response)
-                if question_response:
-                    st.write("Answer to your question:")
-                    st.write(question_response)
+    # List top processes by CPU and memory usage
+    st.subheader("Top Resource-Consuming Processes")
+    top_processes = []
+    for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
+        top_processes.append(proc.info)
 
-            except FileNotFoundError as e:
-                st.error(str(e))
-        else:
-            st.error("Please upload an image.")
+    top_processes = sorted(top_processes, key=lambda p: p['cpu_percent'], reverse=True)[:5]
+    for i, proc in enumerate(top_processes, 1):
+        st.write(f"{i}. {proc['name']} (PID: {proc['pid']}) - CPU: {proc['cpu_percent']}%, Memory: {proc['memory_percent']}%")
 
     # Button to save the report
     if st.button("Save Report"):
-        if 'calorie_response' in st.session_state:
+        if 'suggestions' in st.session_state:
             try:
                 home_dir = Path.home()
-                report_path = home_dir / "nutrition_report.txt"
+                report_path = home_dir / "system_performance_report.txt"
                 with open(report_path, "w") as report_file:
-                    report_file.write("Total Calories:\n")
-                    report_file.write(st.session_state.calorie_response + "\n")
-                    if 'question_response' in st.session_state and st.session_state.question_response:
-                        report_file.write("\nAnswer to your question:\n")
-                        report_file.write(st.session_state.question_response)
+                    report_file.write("System Resource Usage:\n")
+                    report_file.write(f"CPU Usage: {cpu_usage}%\n")
+                    report_file.write(f"Memory Usage: {memory_usage}%\n")
+                    report_file.write(f"Disk Usage: {disk_usage}%\n")
+                    report_file.write("\nAI Suggestions:\n")
+                    report_file.write(st.session_state.suggestions)
 
                 st.sidebar.write(f"Report saved successfully to {report_path}!")
             except Exception as e:
                 st.error(f"Error saving the report: {str(e)}")
         else:
-            st.error("Please analyze an image first to generate a report.")
+            st.error("Please generate AI suggestions first.")
 
-    # Additional sidebar functionalities
-    st.sidebar.header("Educational Resources")
-    st.sidebar.write("1. [Balanced Diets](https://www.nhs.uk/live-well/eat-well/how-to-eat-a-balanced-diet/eating-a-balanced-diet/)")
-    st.sidebar.write("2. [Healthy Eating Tips](https://www.nhs.uk/live-well/eat-well/how-to-eat-a-balanced-diet/eight-tips-for-healthy-eating/)")
-    st.sidebar.write("3. [Macronutrients and Micronutrients](https://www.healthline.com/nutrition/micronutrients)")

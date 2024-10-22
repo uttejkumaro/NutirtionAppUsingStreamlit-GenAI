@@ -103,6 +103,7 @@ else:
 
     # 2. Display top 5 processes by CPU and Memory Usage
     st.subheader("Top 5 Processes by CPU and Memory Usage")
+
     def get_top_processes():
         processes = []
         for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
@@ -147,7 +148,17 @@ else:
                     report_file.write(st.session_state.suggestions)
 
                 st.sidebar.write(f"Report saved successfully to {report_path}!")
+
+                # Adding download link
+                with open(report_path, "rb") as file:
+                    st.download_button(
+                        label="Download Report",
+                        data=file,
+                        file_name="system_performance_report.txt",
+                        mime="text/plain"
+                    )
+
             except Exception as e:
                 st.error(f"Error saving the report: {str(e)}")
         else:
-            st.error("Please generate AI suggestions first.")
+            st.error("Please generate AI suggestions first.")

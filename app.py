@@ -47,10 +47,10 @@ else:
         Provide suggestions on how to optimize system performance.
         """
 
-    # Adding a continuous monitoring loop for real-time updates
+    # Checkbox to enable real-time monitoring
     monitoring = st.checkbox("Enable Real-Time Monitoring")
 
-    while monitoring:
+    if monitoring:
         # Update resource usage data
         cpu_usage, memory_usage, disk_usage = display_system_usage()
         st.sidebar.write(f"CPU Usage: {cpu_usage}%")
@@ -81,14 +81,13 @@ else:
             }
 
         # Update historical data for plotting
-        cpu, memory, disk = display_system_usage()
-        st.session_state.history["cpu"].append(cpu)
-        st.session_state.history["memory"].append(memory)
-        st.session_state.history["disk"].append(disk)
+        st.session_state.history["cpu"].append(cpu_usage)
+        st.session_state.history["memory"].append(memory_usage)
+        st.session_state.history["disk"].append(disk_usage)
         st.session_state.history["timestamps"].append(time.time())
 
         # Plot the resource usage over time
-        if len(st.session_state.history["timestamps"]) > 0:
+        if len(st.session_state.history["timestamps"]) > 1:
             fig, ax = plt.subplots(3, 1, figsize=(10, 6))
 
             ax[0].plot(st.session_state.history["timestamps"], st.session_state.history["cpu"], label="CPU Usage")
